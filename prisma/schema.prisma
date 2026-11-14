@@ -1,0 +1,201 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum DeliveryStatus {
+  SUBMITTED
+  REVISION_REQUESTED
+}
+
+enum UserRole {
+  CLIENT
+  FREELANCER
+  ADMIN
+}
+
+enum ProjectStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum ProposalStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum TransactionType {
+  DEPOSIT
+  HOLD
+  RELEASE
+  EARNING
+  COMMISSION
+}
+
+model User {
+  id           BigInt    @id @default(autoincrement())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         UserRole
+  isBanned     Boolean   @default(false)
+  bannedAt     DateTime? @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(6)
+
+  sessions          Session[]
+  freelancerProfile FreelancerProfile?
+  wallet            Wallet?
+
+  projects  Project[]  @relation("ClientProjects")
+  proposals Proposal[] @relation("FreelancerProposals")
+}
+
+model Session {
+  id         BigInt    @id @default(autoincrement())
+  userId     BigInt
+  deviceType String?
+  ipAddress  String?
+  loginTime  DateTime  @default(now()) @db.Timestamptz(6)
+  expiresAt  DateTime  @db.Timestamptz(6)
+  revokedAt  DateTime? @db.Timestamptz(6)
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@index([userId])
+}
+
+model RefreshToken {
+  id        BigInt    @id @default(autoincrement())
+  sessionId BigInt
+  tokenHash String    @unique
+  usedAt    DateTime? @db.Timestamptz(6)
+  expiresAt DateTime  @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+model FreelancerProfile {
+  userId     BigInt   @id
+  bio        String?
+  hourlyRate BigInt?
+  avatarPath String?
+  updatedAt  DateTime @updatedAt @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+}
+
+model Category {
+  id        BigInt   @id @default(autoincrement())
+  name      String   @unique
+  createdAt DateTime @default(now()) @db.Timestamptz(6)
+
+  projects Project[]
+}
+
+model Project {
+  id          BigInt        @id @default(autoincrement())
+  clientId    BigInt
+  categoryId  BigInt
+  title       String
+  description String
+  budget      BigInt
+  status      ProjectStatus @default(OPEN)
+
+  attachmentPath         String?
+  attachmentOriginalName String?
+  attachmentMimeType     String?
+  attachmentSize         Int?
+
+  acceptedProposalId BigInt? @unique
+
+  deletedAt DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(6)
+
+  client           User                @relation("ClientProjects", fields: [clientId], references: [id], onDelete: Restrict)
+  category         Category            @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  acceptedProposal Proposal?           @relation("AcceptedProposal", fields: [acceptedProposalId], references: [id], onDelete: Restrict)
+  proposals        Proposal[]          @relation("ProjectProposals")
+  delivery         Delivery?
+  transactions     WalletTransaction[]
+
+  @@index([clientId])
+  @@index([status, categoryId, createdAt])
+  @@index([status, budget])
+}
+
+model Proposal {
+  id           BigInt         @id @default(autoincrement())
+  projectId    BigInt
+  freelancerId BigInt
+  price        BigInt
+  durationDays Int
+  message      String
+  status       ProposalStatus @default(PENDING)
+  createdAt    DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime       @updatedAt @db.Timestamptz(6)
+
+  project         Project  @relation("ProjectProposals", fields: [projectId], references: [id], onDelete: Restrict)
+  freelancer      User     @relation("FreelancerProposals", fields: [freelancerId], references: [id], onDelete: Restrict)
+  acceptedProject Project? @relation("AcceptedProposal")
+
+  @@unique([projectId, freelancerId])
+  @@index([projectId, createdAt])
+  @@index([freelancerId, createdAt])
+}
+
+model Delivery {
+  id           BigInt         @id @default(autoincrement())
+  projectId    BigInt         @unique
+  filePath     String
+  originalName String
+  mimeType     String
+  sizeBytes    Int
+  submittedAt  DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt    DateTime       @updatedAt @db.Timestamptz(6)
+  status       DeliveryStatus @default(SUBMITTED)
+  revisionNote String?
+  reviewedAt   DateTime?      @db.Timestamptz(6)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+}
+
+model Wallet {
+  id               BigInt   @id @default(autoincrement())
+  userId           BigInt   @unique
+  availableBalance BigInt   @default(0)
+  reservedBalance  BigInt   @default(0)
+  updatedAt        DateTime @updatedAt @db.Timestamptz(6)
+
+  user         User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  transactions WalletTransaction[]
+}
+
+model WalletTransaction {
+  id             BigInt          @id @default(autoincrement())
+  walletId       BigInt
+  type           TransactionType
+  amount         BigInt
+  projectId      BigInt?
+  availableAfter BigInt
+  reservedAfter  BigInt
+  createdAt      DateTime        @default(now()) @db.Timestamptz(6)
+
+  wallet  Wallet   @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, walletId, type])
+  @@index([walletId, createdAt])
+  @@index([walletId, type, createdAt])
+}
