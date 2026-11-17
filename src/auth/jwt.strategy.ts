@@ -26,12 +26,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     async validate(payload: any) {
 
-        // 1. Reject refresh tokens
+        
         if (payload.type !== 'access') {
             throw new UnauthorizedException('Invalid access token');
         }
 
-        // 2. Check user
+      
         const user = await this.prisma.user.findUnique({
             where: {
                 id: BigInt(payload.sub),
@@ -48,7 +48,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             throw new UnauthorizedException('User not found or banned');
         }
 
-        // 3. Check session
+      
         const session = await this.prisma.session.findFirst({
             where: {
                 id: BigInt(payload.sid),
@@ -64,7 +64,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             throw new UnauthorizedException('Session is invalid or expired');
         }
 
-        // 4. Return authenticated user
+        
         return {
             userId: user.id.toString(),
             sid: session.id.toString(),

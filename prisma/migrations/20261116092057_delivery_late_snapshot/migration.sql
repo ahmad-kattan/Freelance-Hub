@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "Delivery" ADD COLUMN     "lateDays" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "latePenalty" BIGINT NOT NULL DEFAULT 0;

@@ -10,6 +10,7 @@ datasource db {
 enum DeliveryStatus {
   SUBMITTED
   REVISION_REQUESTED
+  APPROVED
 }
 
 enum UserRole {
@@ -36,6 +37,7 @@ enum TransactionType {
   RELEASE
   EARNING
   COMMISSION
+  PENALTY_REFUND
 }
 
 model User {
@@ -117,7 +119,8 @@ model Project {
   attachmentMimeType     String?
   attachmentSize         Int?
 
-  acceptedProposalId BigInt? @unique
+  acceptedProposalId BigInt?   @unique
+  dueAt              DateTime? @db.Timestamptz(6)
 
   deletedAt DateTime? @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @db.Timestamptz(6)
@@ -156,17 +159,21 @@ model Proposal {
 }
 
 model Delivery {
-  id           BigInt         @id @default(autoincrement())
-  projectId    BigInt         @unique
-  filePath     String
-  originalName String
-  mimeType     String
-  sizeBytes    Int
-  submittedAt  DateTime       @default(now()) @db.Timestamptz(6)
-  updatedAt    DateTime       @updatedAt @db.Timestamptz(6)
-  status       DeliveryStatus @default(SUBMITTED)
-  revisionNote String?
-  reviewedAt   DateTime?      @db.Timestamptz(6)
+  id               BigInt         @id @default(autoincrement())
+  projectId        BigInt         @unique
+  filePath         String
+  originalName     String
+  mimeType         String
+  sizeBytes        Int
+  submittedAt      DateTime       @default(now()) @db.Timestamptz(6)
+  firstSubmittedAt DateTime       @default(now()) @db.Timestamptz(6)
+  updatedAt        DateTime       @updatedAt @db.Timestamptz(6)
+  status           DeliveryStatus @default(SUBMITTED)
+  revisionNote     String?
+  reviewedAt       DateTime?      @db.Timestamptz(6)
+  autoApproved     Boolean        @default(false)
+  lateDays         Int            @default(0)
+  latePenalty      BigInt         @default(0)
 
   project Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
 }

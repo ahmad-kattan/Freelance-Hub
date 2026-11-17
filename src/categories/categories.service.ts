@@ -28,7 +28,7 @@ type CategoryRow = Prisma.CategoryGetPayload<{
 export class CategoriesService {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(CACHE_MANAGER) private readonly cache: Cache,
+    @Inject (CACHE_MANAGER) private readonly cache: Cache,
   ) { }
 
 
@@ -94,7 +94,7 @@ export class CategoriesService {
   async remove(id: bigint) {
 
     const projectsCount = await this.prisma.project.count({
-      where: { categoryId: id },
+      where: { categoryId: id  },
     });
 
     if (projectsCount > 0) {

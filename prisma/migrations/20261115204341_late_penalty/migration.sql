@@ -1,0 +1,8 @@
+-- AlterEnum
+ALTER TYPE "TransactionType" ADD VALUE 'PENALTY_REFUND';
+
+-- AlterTable
+ALTER TABLE "Delivery" ADD COLUMN     "firstSubmittedAt" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- AlterTable
+ALTER TABLE "Project" ADD COLUMN     "dueAt" TIMESTAMPTZ(6);

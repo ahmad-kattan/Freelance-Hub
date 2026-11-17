@@ -35,8 +35,10 @@ const LIST_SELECT = {
   budget: true,
   status: true,
   createdAt: true,
+  dueAt: true,
   category: { select: { id: true, name: true } },
   client: { select: { id: true, name: true } },
+  delivery: { select: { autoApproved: true } }
 } satisfies Prisma.ProjectSelect;
 
 const DETAIL_SELECT = {
@@ -48,7 +50,7 @@ const DETAIL_SELECT = {
   attachmentOriginalName: true,
   attachmentMimeType: true,
   attachmentSize: true,
-  acceptedProposal: { select: { freelancerId: true } },
+  acceptedProposal: { select: { id: true, price: true, durationDays: true, freelancerId: true } },
 } satisfies Prisma.ProjectSelect;
 
 type DetailRow = Prisma.ProjectGetPayload<{ select: typeof DETAIL_SELECT }>;
@@ -298,12 +300,21 @@ export class ProjectsService {
       id: project.id,
       title: project.title,
       description: project.description,
-      budget: project.budget, // بالسنت
+      budget: project.budget,
       status: project.status,
       createdAt: project.createdAt,
       updatedAt: project.updatedAt,
       category: project.category,
       client: project.client,
+      dueAt: project.dueAt,
+      acceptedProposal: project.acceptedProposal
+        ? {
+          id: project.acceptedProposal.id,
+          price: project.acceptedProposal.price,
+          durationDays: project.acceptedProposal.durationDays,
+          freelancerId: project.acceptedProposal.freelancerId,
+        }
+        : null,
       attachment: project.attachmentPath
         ? {
           name: project.attachmentOriginalName,
@@ -335,7 +346,7 @@ export class ProjectsService {
     });
 
     return {
-      attachmentPath: filename, 
+      attachmentPath: filename,
       attachmentOriginalName: this.cleanFileName(file.originalname),
       attachmentMimeType: detected.mime,
       attachmentSize: file.buffer.length,

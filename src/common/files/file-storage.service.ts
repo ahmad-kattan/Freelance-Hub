@@ -10,12 +10,7 @@ export type SaveFileOptions = {
     errorMessage: string;
 };
 
-export type SavedFile = {
-    storedName: string; //(UUID + امتداد)
-    mimeType: string;
-    size: number;
-    originalName: string;
-};
+export type SavedFile = { storedName: string; mimeType: string; size: number; originalName: string; };
 
 @Injectable()
 export class FileStorageService {

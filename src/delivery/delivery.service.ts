@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { resolve } from 'node:path';
@@ -11,9 +12,14 @@ import { DeliveryStatus, ProjectStatus } from '../generated/prisma/enums.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { WalletService } from '../wallet/wallet.service.js';
 import { FileStorageService } from '../common/files/file-storage.service.js';
+import { ConfigService } from '@nestjs/config';
 import { RequestRevisionDto } from './dto/request-revision.dto.js';
+import { calcLateDays, calcLatePenalty } from './late-penalty.util.js';
 
 const DELIVERY_DIR = resolve(process.cwd(), 'uploads', 'deliveries');
+
+const AUTO_APPROVE_BATCH = 100;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 const DELIVERY_TYPES: Record<string, string> = {
   'application/pdf': 'pdf',
@@ -25,6 +31,10 @@ const DELIVERY_TYPES: Record<string, string> = {
 
 const DELIVERY_SELECT = {
   status: true,
+  autoApproved: true,
+  firstSubmittedAt: true,
+  lateDays: true,
+  latePenalty: true,
   revisionNote: true,
   reviewedAt: true,
   originalName: true,
@@ -41,6 +51,7 @@ type DeliveryRow = Prisma.DeliveryGetPayload<{
 const PARTY_SELECT = {
   clientId: true,
   status: true,
+  dueAt: true,
   acceptedProposal: { select: { freelancerId: true, price: true } },
   delivery: { select: { ...DELIVERY_SELECT, filePath: true } },
 } satisfies Prisma.ProjectSelect;
@@ -48,10 +59,13 @@ const PARTY_SELECT = {
 
 @Injectable()
 export class DeliveryService {
+  private readonly logger = new Logger(DeliveryService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly walletService: WalletService,
     private readonly files: FileStorageService,
+    private readonly config: ConfigService,
   ) { }
 
 
@@ -152,7 +166,10 @@ export class DeliveryService {
 
       await this.files.remove(DELIVERY_DIR, previousFile).catch(() => undefined);
 
-      return this.toResponse(projectId, delivery);
+      return this.toResponse(projectId, delivery, {
+        dueAt: project.dueAt,
+        price: project.acceptedProposal?.price,
+      });
     } catch (error) {
       await this.files
         .remove(DELIVERY_DIR, saved.storedName)
@@ -226,7 +243,10 @@ export class DeliveryService {
         select: DELIVERY_SELECT,
       });
 
-      return this.toResponse(projectId, delivery);
+      return this.toResponse(projectId, delivery, {
+        dueAt: project.dueAt,
+        price: project.acceptedProposal?.price,
+      });
     });
   }
 
@@ -238,7 +258,10 @@ export class DeliveryService {
       throw new NotFoundException('No delivery has been submitted yet');
     }
 
-    return this.toResponse(projectId, project.delivery);
+    return this.toResponse(projectId, project.delivery, {
+      dueAt: project.dueAt,
+      price: project.acceptedProposal?.price,
+    });
   }
 
 
@@ -255,6 +278,8 @@ export class DeliveryService {
       mimeType: project.delivery.mimeType,
     };
   }
+
+
 
   async approve(projectId: bigint, clientId: string) {
     try {
@@ -289,34 +314,14 @@ export class DeliveryService {
           );
         }
 
-        const updated = await tx.project.updateMany({
-          where: {
-            id: projectId,
-            clientId: BigInt(clientId),
-            status: ProjectStatus.IN_PROGRESS,
-            deletedAt: null,
-          },
-          data: { status: ProjectStatus.COMPLETED },
-        });
-
-        if (updated.count === 0) {
-          throw new ConflictException('This project is no longer in progress');
-        }
-
-        const current = await tx.delivery.findUnique({
-          where: { projectId },
-          select: { status: true },
-        });
-
-        if (!current || current.status !== DeliveryStatus.SUBMITTED) {
-          throw new ConflictException('The delivery is not ready for approval');
-        }
-
-        const payment = await this.walletService.payout(tx, {
+        const payment = await this.settleApproval(tx, {
+          projectId,
           clientId: BigInt(clientId),
           freelancerId: project.acceptedProposal.freelancerId,
-          projectId,
           price: project.acceptedProposal.price,
+          dueAt: project.dueAt,
+          firstSubmittedAt: project.delivery.firstSubmittedAt,
+          autoApproved: false,
         });
 
         return {
@@ -324,6 +329,8 @@ export class DeliveryService {
           projectStatus: ProjectStatus.COMPLETED,
           paidToFreelancer: payment.earning,
           platformCommission: payment.commission,
+          lateDays: payment.lateDays,
+          latePenalty: payment.penalty,
           total: payment.price,
         };
       });
@@ -336,6 +343,142 @@ export class DeliveryService {
       }
       throw error;
     }
+  }
+
+
+
+  async autoApproveOverdue(days: number): Promise<number> {
+    const threshold = new Date(Date.now() - days * DAY_MS);
+
+    const overdue = await this.prisma.delivery.findMany({
+      where: {
+        status: DeliveryStatus.SUBMITTED,
+        submittedAt: { lte: threshold },
+        project: { status: ProjectStatus.IN_PROGRESS, deletedAt: null },
+      },
+      select: { projectId: true },
+      orderBy: { submittedAt: 'asc' },
+      take: AUTO_APPROVE_BATCH,
+    });
+
+    let approved = 0;
+
+    for (const { projectId } of overdue) {
+      try {
+        if (await this.autoApproveOne(projectId, threshold)) {
+          approved++;
+        }
+      }
+      catch (error) {
+        this.logger.error(
+          `Auto-approve failed for project ${projectId}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      }
+    }
+
+    return approved;
+  }
+
+
+  private async autoApproveOne(projectId: bigint, threshold: Date): Promise<boolean> {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const project = await tx.project.findFirst({
+          where: { id: projectId, deletedAt: null },
+          select: PARTY_SELECT,
+        });
+
+        if (
+          !project ||
+          project.status !== ProjectStatus.IN_PROGRESS ||
+          !project.acceptedProposal ||
+          !project.delivery ||
+          project.delivery.status !== DeliveryStatus.SUBMITTED
+        ) {
+          return false;
+        }
+
+        await this.settleApproval(tx, {
+          projectId,
+          clientId: project.clientId,
+          freelancerId: project.acceptedProposal.freelancerId,
+          price: project.acceptedProposal.price,
+          dueAt: project.dueAt,
+          firstSubmittedAt: project.delivery.firstSubmittedAt,
+          autoApproved: true,
+          submittedBefore: threshold,
+        });
+
+        return true;
+      });
+    }
+    catch (error) {
+      if (error instanceof ConflictException) {
+        return false;
+      }
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+
+  private async settleApproval(tx: Prisma.TransactionClient,
+    params: {
+      projectId: bigint; clientId: bigint; freelancerId: bigint; price: bigint;
+      dueAt: Date | null; firstSubmittedAt: Date; autoApproved: boolean; submittedBefore?: Date;
+    },
+  ) {
+    const {
+      projectId, clientId, freelancerId, price,
+      dueAt, firstSubmittedAt, autoApproved, submittedBefore,
+    } = params;
+
+    const lateDays = calcLateDays(dueAt, firstSubmittedAt);
+    const { perDay, max } = this.penaltyConfig();
+    const penalty = calcLatePenalty(price, lateDays, perDay, max);
+
+    const updated = await tx.project.updateMany({
+      where: {
+        id: projectId,
+        clientId,
+        status: ProjectStatus.IN_PROGRESS,
+        deletedAt: null,
+      },
+      data: { status: ProjectStatus.COMPLETED },
+    });
+
+    if (updated.count === 0) {
+      throw new ConflictException('This project is no longer in progress');
+    }
+
+    const deliveryUpdated = await tx.delivery.updateMany({
+      where: {
+        projectId,
+        status: DeliveryStatus.SUBMITTED,
+        ...(submittedBefore && { submittedAt: { lte: submittedBefore } }),
+      },
+      data: {
+        status: DeliveryStatus.APPROVED,
+        autoApproved,
+        reviewedAt: new Date(),
+        lateDays,
+        latePenalty: penalty,
+      },
+    });
+
+    if (deliveryUpdated.count === 0) {
+      throw new ConflictException('The delivery is not ready for approval');
+    }
+
+    const payment = await this.walletService.payout(tx, { clientId, freelancerId, projectId, price, penalty });
+
+    return { ...payment, lateDays };
   }
 
 
@@ -360,15 +503,45 @@ export class DeliveryService {
   }
 
 
-  private toResponse(projectId: bigint, delivery: DeliveryRow) {
+  private penaltyConfig() {
+    return {
+      perDay: this.config.get<number>('LATE_PENALTY_PERCENT_PER_DAY', 5),
+      max: this.config.get<number>('LATE_PENALTY_MAX_PERCENT', 30),
+    };
+  }
+
+
+  private resolveLateness(delivery: DeliveryRow, ctx: { dueAt: Date | null; price?: bigint }
+  ) {
+    if (delivery.status === DeliveryStatus.APPROVED) {
+      return { lateDays: delivery.lateDays, latePenalty: delivery.latePenalty };
+    }
+
+    const lateDays = calcLateDays(ctx.dueAt, delivery.firstSubmittedAt);
+    const { perDay, max } = this.penaltyConfig();
+    const latePenalty = ctx.price === undefined? 0n
+        : calcLatePenalty(ctx.price, lateDays, perDay, max);
+    return { lateDays, latePenalty };
+  }
+
+
+  private toResponse(projectId: bigint,delivery: DeliveryRow,
+    ctx: { dueAt: Date | null; price?: bigint },
+  ) {
+    const { lateDays, latePenalty } = this.resolveLateness(delivery, ctx);
+
     return {
       status: delivery.status,
+      autoApproved: delivery.autoApproved,
       revisionNote: delivery.revisionNote,
       reviewedAt: delivery.reviewedAt,
       name: delivery.originalName,
       mimeType: delivery.mimeType,
       size: delivery.sizeBytes,
+      firstSubmittedAt: delivery.firstSubmittedAt,
       submittedAt: delivery.submittedAt,
+      lateDays,
+      latePenalty,
       updatedAt: delivery.updatedAt,
       url: `/projects/${projectId}/delivery/file`,
     };

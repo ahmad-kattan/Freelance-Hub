@@ -11,9 +11,7 @@ export const avatarMulterOptions = {
     files: 1,
   },
  
-  fileFilter: (
-    _req: Request,
-    file: Express.Multer.File,
+  fileFilter: (_req: Request,file: Express.Multer.File,
     callback: (error: Error | null, acceptFile: boolean) => void,
   ) => {
     if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {

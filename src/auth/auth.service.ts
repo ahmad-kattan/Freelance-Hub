@@ -103,10 +103,7 @@ export class AuthService {
             throw new UnauthorizedException('Invalid email or password');
         }
 
-        const passwordMatches = await bcrypt.compare(
-            dto.password,
-            user.passwordHash,
-        );
+        const passwordMatches = await bcrypt.compare(dto.password, user.passwordHash);
 
         if (!passwordMatches) {
             throw new UnauthorizedException('Invalid email or password');
@@ -169,17 +166,13 @@ export class AuthService {
 
         try {
             payload = await this.jwtService.verifyAsync<TokenPayload>(
-                refreshToken,{ secret });
-        } 
+                refreshToken, { secret });
+        }
         catch {
             throw new UnauthorizedException('Invalid or expired refresh token');
         }
 
-        if (
-            payload.type !== 'refresh' ||
-            !payload.sub ||
-            !payload.sid
-        ) {
+        if (payload.type !== 'refresh' || !payload.sub || !payload.sid) {
             throw new UnauthorizedException('Invalid refresh token');
         }
 
@@ -206,10 +199,7 @@ export class AuthService {
         const session = storedToken.session;
         const user = session.user;
 
-        if (
-            session.id.toString() !== payload.sid ||
-            user.id.toString() !== payload.sub
-        ) {
+        if (session.id.toString() !== payload.sid || user.id.toString() !== payload.sub) {
             throw new UnauthorizedException('Invalid refresh token');
         }
 
@@ -230,11 +220,7 @@ export class AuthService {
             );
         }
 
-        if (
-            session.revokedAt !== null ||
-            session.expiresAt <= now ||
-            storedToken.expiresAt <= now
-        ) {
+        if (session.revokedAt !== null || session.expiresAt <= now || storedToken.expiresAt <= now) {
             throw new UnauthorizedException('Session expired or revoked');
         }
 
@@ -438,10 +424,7 @@ export class AuthService {
         const [access_token, refresh_token] = await Promise.all([
             this.jwtService.signAsync(accessPayload, { secret, expiresIn: '15m' }),
 
-            this.jwtService.signAsync(refreshPayload, {
-                secret,
-                expiresIn: '7d',
-            }),
+            this.jwtService.signAsync(refreshPayload, { secret, expiresIn: '7d' }),
         ]);
 
         return {

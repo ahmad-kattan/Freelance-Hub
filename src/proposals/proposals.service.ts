@@ -58,6 +58,7 @@ const MY_LIST_SELECT = {
       status: true,
       budget: true,
       deletedAt: true,
+      dueAt:true
     },
   },
 } satisfies Prisma.ProposalSelect;
@@ -206,6 +207,7 @@ export class ProposalsService {
             id: true,
             projectId: true,
             price: true,
+            durationDays:true,
             status: true,
             freelancer: { select: { isBanned: true ,id:true} },
             project: {
@@ -254,6 +256,7 @@ export class ProposalsService {
           data: {
             status: ProjectStatus.IN_PROGRESS,
             acceptedProposalId: proposal.id,
+            dueAt: new Date(Date.now() + proposal.durationDays * 24 * 60 * 60 * 1000)
           },
         });
 
@@ -326,6 +329,7 @@ export class ProposalsService {
       message: row.message,
       status: row.status,
       createdAt: row.createdAt,
+      dueAt:row.project.dueAt,
       project: {
         id: row.project.id,
         title: row.project.title,

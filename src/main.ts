@@ -10,15 +10,14 @@ import { setupSwagger } from './common/swagger/swagger.setup.js';
 
 (BigInt.prototype as any).toJSON = function () { return this.toString(); };
 async function bootstrap() {
-  
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  app.useStaticAssets(join(process.cwd(), 'uploads','avatars'), { prefix: '/uploads/avatars' });
+  app.useStaticAssets(join(process.cwd(), 'uploads', 'avatars'), { prefix: '/uploads/avatars' });
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new
-      ValidationPipe(
+    ValidationPipe(
       {
-              transform: true,
-
+        transform: true,
         whitelist: true,
         forbidNonWhitelisted: true
       }
@@ -27,7 +26,7 @@ async function bootstrap() {
   app.useGlobalInterceptors(new LoggingInterceptor(), new ResponseInterceptor());
   app.useGlobalFilters(new AllExceptionsFilter());
   setupSwagger(app);
-  
+
   await app.listen(3000, () => {
     console.log("service started on port 3000");
   });

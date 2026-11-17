@@ -31,8 +31,6 @@ import { contentDisposition } from '../common/utils/content-disposition.util.js'
 import { ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { ApiFileUpload } from '../common/decorators/api-file-upload.decorator.js';
 
-
-
 @ApiTags('Projects')
 @Controller('projects')
 export class ProjectsController {
@@ -41,8 +39,9 @@ export class ProjectsController {
   @Post()
   @Auth(UserRole.CLIENT)
   @UseInterceptors(
-  FileInterceptor('attachment', projectAttachmentMulterOptions))
-  @ApiOperation({summary: 'Publish a project (clients only)',
+    FileInterceptor('attachment', projectAttachmentMulterOptions))
+  @ApiOperation({
+    summary: 'Publish a project (clients only)',
     description:
       'multipart/form-data. budget is an integer in cents (50000 = $500.00). categoryId is a string (400 if the category does not exist). The optional attachment is an image (JPEG, PNG, WEBP) or a PDF, up to 5 MB; its real type is checked from the content. The new project starts as OPEN.',
   })
@@ -57,9 +56,7 @@ export class ProjectsController {
     },
     requiredFields: ['title', 'description', 'categoryId', 'budget'],
   })
-  create(
-    @CurrentUser('userId') userId: string,
-    @Body() dto: CreateProjectDto,
+  create(@CurrentUser('userId') userId: string, @Body() dto: CreateProjectDto,
     @UploadedFile() file?: Express.Multer.File,
   ) {
     return this.projectsService.create(userId, dto, file);
@@ -67,7 +64,7 @@ export class ProjectsController {
 
   @Get()
   @Auth(UserRole.FREELANCER, UserRole.ADMIN)
-   @ApiOperation({
+  @ApiOperation({
     summary: 'Browse open projects (freelancers)',
     description:
       'Only OPEN, non-deleted projects of non-banned clients. Paginated (always check meta.total and meta.totalPages). Filters: search (in the title), categoryId. Sort by createdAt (newest) or budget with sortOrder.',
@@ -162,7 +159,7 @@ export class ProjectsController {
   @UseInterceptors(
     FileInterceptor('attachment', projectAttachmentMulterOptions),
   )
-   @ApiOperation({
+  @ApiOperation({
     summary: 'Edit my project (owner, only while OPEN)',
     description:
       'Send only what you want to change. Plain JSON also works when you are not replacing the attachment. A new attachment replaces the old one. 400 for an empty request, 403 if not yours, 409 if the project is no longer OPEN.',

@@ -16,10 +16,11 @@ export type Tx = Prisma.TransactionClient;
 
 const COMMISSION_PERCENT = 10n;
 
-export function splitPayment(price: bigint) {
-  const commission = (price * COMMISSION_PERCENT) / 100n;
-  const earning = price - commission;
-  return { commission, earning };
+export function splitPayment(price: bigint,penalty: bigint = 0n) {
+  const net = price - penalty;
+  const commission = (net * COMMISSION_PERCENT) / 100n;
+  const earning = net - commission;
+  return { net , commission , earning };
 }
 
 const BALANCE_SELECT = {
@@ -157,9 +158,15 @@ export class WalletService {
     });
   }
 
-  async payout(tx: Tx, params: { clientId: bigint; freelancerId: bigint; projectId: bigint; price: bigint; }) {
-    const { clientId, freelancerId, projectId, price } = params;
-    const { commission, earning } = splitPayment(price);
+  async payout(tx: Tx, params:
+     { clientId: bigint; freelancerId: bigint; projectId: bigint; price: bigint; penalty?: bigint; }) {
+    const { clientId, freelancerId, projectId, price, penalty = 0n } = params;
+
+    if (penalty < 0n || penalty > price) {
+      throw new InternalServerErrorException('Invalid late penalty amount');
+    }
+
+    const { net, commission, earning } = splitPayment(price, penalty);
 
     const [clientWallet, freelancerWallet, platformWallet] = await Promise.all([
       tx.wallet.findUniqueOrThrow({
@@ -191,6 +198,12 @@ export class WalletService {
         amount: price,
         guard: { reservedBalance: { gte: price } },
         data: { reservedBalance: { decrement: price } },
+      },
+      {
+        walletId: clientWallet.id,
+        type: TransactionType.PENALTY_REFUND,
+        amount: penalty,
+        data: { availableBalance: { increment: penalty } },
       },
       {
         walletId: freelancerWallet.id,
@@ -234,6 +247,6 @@ export class WalletService {
       });
     }
 
-    return { price, commission, earning };
+    return { price, penalty, net, commission, earning };
   }
 }

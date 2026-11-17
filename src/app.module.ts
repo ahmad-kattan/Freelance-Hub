@@ -15,8 +15,8 @@ import { ProposalsModule } from './proposals/proposals.module.js';
 import { DeliveryModule } from './delivery/delivery.module.js';
 import Joi from 'joi';
 import { FilesModule } from './common/files/files.module.js';
+import { ScheduleModule } from '@nestjs/schedule';
 
-export const { ObserveModule, ObserveInstrument } = createObserveModule();
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -26,10 +26,14 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
         JWT_SECRET: Joi.string().required(),
         JWT_EXPIRES_IN: Joi.string().required(),
         ADMIN_EMAIL: Joi.string().required(),
-        ADMIN_PASSWORD: Joi.string().required()
+        ADMIN_PASSWORD: Joi.string().required(),
+        AUTO_APPROVE_DAYS: Joi.number().integer().min(1).default(2),
+        LATE_PENALTY_PERCENT_PER_DAY: Joi.number().integer().min(0).max(100).default(5),
+        LATE_PENALTY_MAX_PERCENT: Joi.number().integer().min(0).max(100).default(30),
       })
     },
     ),
+    ScheduleModule.forRoot(),
     CacheModule.register({ isGlobal: true, ttl: 10_000 }),
     PrismaModule,
     AuthModule,
