@@ -36,6 +36,7 @@ const LIST_SELECT = {
   status: true,
   createdAt: true,
   dueAt: true,
+  acceptedProposal:{select:{freelancer:{select:{id:true,name:true}}}},
   category: { select: { id: true, name: true } },
   client: { select: { id: true, name: true } },
   delivery: { select: { autoApproved: true } }
